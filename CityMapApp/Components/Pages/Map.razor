@@ -1,0 +1,90 @@
+@page "/map"
+@rendermode InteractiveServer
+
+@inject HttpClient Http
+@inject IJSRuntime Js
+
+<PageTitle>Community Map | Thrive St. George</PageTitle>
+
+<div class="map-page">
+    <header class="map-page-header">
+        <div class="map-page-header-copy">
+            <p class="eyebrow">FROM HERE, THERE &amp; EVERYWHERE</p>
+            <h1>See where we<br /><span>come from.</span></h1>
+            <p>See where our community is growing and connect with people who chose to share their details.</p>
+        </div>
+    </header>
+
+    @if (_loading)
+    {
+        <p>Loading map data...</p>
+    }
+    else if (_pins.Count == 0)
+    {
+        <p>No submissions yet. Be the first person to add your city.</p>
+    }
+    else
+    {
+        <div id="city-map" class="city-map"></div>
+
+        <div class="city-grid-section mt-4">
+            <h2>Top Cities</h2>
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>City</th>
+                        <th>State</th>
+                        <th>Count</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var pin in _pins)
+                    {
+                        <tr>
+                            <td>
+                                @if (pin.SharedContactCount > 0)
+                                {
+                                    <a class="city-users-link" role="button" tabindex="0" @onclick="() => ShowUsersAsync(pin)" @onkeydown="e => HandleCityLinkKeyAsync(e, pin)">@pin.City</a>
+                                }
+                                else
+                                {
+                                    @pin.City
+                                }
+                            </td>
+                            <td>@pin.State</td>
+                            <td>@pin.Count</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@if (_selectedPin is not null)
+{
+    <div class="users-modal-backdrop" @onclick="CloseUsers">
+        <section class="users-modal" role="dialog" aria-modal="true" aria-labelledby="users-modal-title" @onclick:stopPropagation="true">
+            <button class="users-modal-close" type="button" aria-label="Close" @onclick="CloseUsers">&times;</button>
+            <h2 id="users-modal-title">@_selectedPin.City, @_selectedPin.State</h2>
+
+            @if (_usersLoading)
+            {
+                <p>Loading people...</p>
+            }
+            else if (_users.Count == 0)
+            {
+                <p>No people have shared both their name and email address.</p>
+            }
+            else
+            {
+                <div class="users-list">
+                    @foreach (var user in _users)
+                    {
+                        <div class="users-list-item"><strong>@user.Name</strong><a href="mailto:@user.EmailAddress">@user.EmailAddress</a></div>
+                    }
+                </div>
+            }
+        </section>
+    </div>
+}

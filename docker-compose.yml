@@ -1,0 +1,11 @@
+services:
+  citymapapp:
+    image: ${DOCKER_REGISTRY-}citymapapp
+    build:
+      context: .
+      dockerfile: CityMapApp/Dockerfile
+    volumes:
+      - citymap-data:/data
+
+volumes:
+  citymap-data:

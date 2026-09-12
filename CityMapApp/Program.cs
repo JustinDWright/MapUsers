@@ -1,0 +1,383 @@
+using System.Data;
+using CityMapApp.Components;
+using CityMapApp.Data;
+using CityMapApp.Models;
+using CityMapApp.Services;
+using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+using Shared.DTOs;
+using Shared.Requests;
+using Shared.Responses;
+
+var builder = WebApplication.CreateBuilder(args);
+const string userTokenCookieName = "citymap-user-token";
+const string openStreetMapUrl = "https://nominatim.openstreetmap.org/";
+
+builder.AddServiceDefaults();
+
+builder.Services.AddRazorComponents().AddInteractiveServerComponents();
+builder.Services.AddScoped(sp =>
+{
+    var navigationManager = sp.GetRequiredService<NavigationManager>();
+    var baseAddress =
+        builder.Configuration["InternalBaseAddress"] ?? navigationManager.BaseUri;
+    return new HttpClient { BaseAddress = new Uri(baseAddress) };
+});
+
+builder.Services.AddDbContext<CityMapDbContext>(options =>
+    options.UseSqlite(
+        builder.Configuration.GetConnectionString("CityMapDb") ?? "Data Source=citymap.db"
+    )
+);
+
+builder.Services.AddHttpClient<IGeocodingService, GeocodingService>(client =>
+{
+    client.BaseAddress = new Uri(openStreetMapUrl);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("CityMapApp/1.0");
+});
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddFixedWindowLimiter(
+        "submission",
+        limiterOptions =>
+        {
+            limiterOptions.PermitLimit = 5;
+            limiterOptions.Window = TimeSpan.FromHours(1);
+            limiterOptions.QueueLimit = 0;
+        }
+    );
+
+    options.AddFixedWindowLimiter(
+        "map",
+        limiterOptions =>
+        {
+            limiterOptions.PermitLimit = 60;
+            limiterOptions.Window = TimeSpan.FromMinutes(1);
+            limiterOptions.QueueLimit = 0;
+        }
+    );
+});
+
+var app = builder.Build();
+
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<CityMapDbContext>();
+    EnsureSqliteDatabaseDirectory(dbContext);
+    dbContext.Database.EnsureCreated();
+    EnsureSubmissionContactColumns(dbContext);
+}
+
+// Configure the HTTP request pipeline.
+if (app.Environment.IsDevelopment()) { }
+else
+{
+    app.UseExceptionHandler("/Error", createScopeForErrors: true);
+    app.UseHsts();
+}
+
+app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
+app.UseHttpsRedirection();
+
+app.UseRateLimiter();
+app.UseAntiforgery();
+
+app.MapStaticAssets();
+app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
+
+app.MapPost(
+        "/api/submissions",
+        async (
+            SubmissionRequest request,
+            HttpContext httpContext,
+            CityMapDbContext dbContext,
+            IGeocodingService geocodingService,
+            CancellationToken cancellationToken
+        ) =>
+        {
+            if (!IsValidSubmission(request))
+            {
+                return Results.BadRequest(new SubmissionResponse(false, "Invalid city or state"));
+            }
+
+            var existingToken = httpContext.Request.Cookies[userTokenCookieName];
+
+            if (!string.IsNullOrWhiteSpace(existingToken))
+            {
+                var alreadySubmitted = await dbContext
+                    .Submissions.AsNoTracking()
+                    .AnyAsync(
+                        submission => submission.UserToken == existingToken,
+                        cancellationToken
+                    );
+
+                if (alreadySubmitted)
+                {
+                    return Results.Ok(new SubmissionResponse(false, "Already submitted"));
+                }
+            }
+
+            var geocodeResult = await geocodingService.GeocodeAsync(
+                request.City,
+                request.State,
+                cancellationToken
+            );
+
+            if (geocodeResult is null)
+            {
+                return Results.BadRequest(
+                    new SubmissionResponse(false, "Unable to locate city/state")
+                );
+            }
+
+            var token = string.IsNullOrWhiteSpace(existingToken)
+                ? Guid.NewGuid().ToString("N")
+                : existingToken;
+
+            var submission = new Submission
+            {
+                City = request.City.Trim(),
+                State = request.State.Trim(),
+                Name = TrimToNull(request.Name),
+                EmailAddress = TrimToNull(request.EmailAddress),
+                Latitude = geocodeResult.Latitude,
+                Longitude = geocodeResult.Longitude,
+                CreatedUtc = DateTime.UtcNow,
+                UserToken = token,
+            };
+
+            dbContext.Submissions.Add(submission);
+            await dbContext.SaveChangesAsync(cancellationToken);
+
+            httpContext.Response.Cookies.Append(
+                userTokenCookieName,
+                token,
+                new CookieOptions
+                {
+                    HttpOnly = true,
+                    Secure = true,
+                    SameSite = SameSiteMode.Lax,
+                    Expires = DateTimeOffset.UtcNow.AddYears(5),
+                }
+            );
+
+            return Results.Ok(new SubmissionResponse(true, null));
+        }
+    )
+    .RequireRateLimiting("submission");
+
+app.MapGet(
+    "/api/submissions/me",
+    async (
+        HttpContext httpContext,
+        CityMapDbContext dbContext,
+        CancellationToken cancellationToken
+    ) =>
+    {
+        var existingToken = httpContext.Request.Cookies[userTokenCookieName];
+        if (string.IsNullOrWhiteSpace(existingToken))
+        {
+            return Results.Ok(new SubmissionStatusResponse(false));
+        }
+
+        var hasSubmitted = await dbContext
+            .Submissions.AsNoTracking()
+            .AnyAsync(submission => submission.UserToken == existingToken, cancellationToken);
+
+        return Results.Ok(new SubmissionStatusResponse(hasSubmitted));
+    }
+);
+
+app.MapGet(
+        "/api/map",
+        async (CityMapDbContext dbContext, CancellationToken cancellationToken) =>
+        {
+            var groupedPins = await dbContext
+                .Submissions.AsNoTracking()
+                .GroupBy(submission => new
+                {
+                    submission.City,
+                    submission.State,
+                    submission.Latitude,
+                    submission.Longitude,
+                })
+                .Select(group => new
+                {
+                    group.Key.City,
+                    group.Key.State,
+                    group.Key.Latitude,
+                    group.Key.Longitude,
+                    Count = group.Count(),
+                    SharedContactCount = group.Count(submission =>
+                        submission.Name != null && submission.EmailAddress != null
+                    ),
+                })
+                .ToListAsync(cancellationToken);
+
+            var pins = groupedPins
+                .Select(pin => new MapPinDto(
+                    pin.City,
+                    pin.State,
+                    pin.Latitude,
+                    pin.Longitude,
+                    pin.Count,
+                    pin.SharedContactCount
+                ))
+                .OrderByDescending(pin => pin.Count)
+                .ToList();
+
+            return Results.Ok(pins);
+        }
+    )
+    .RequireRateLimiting("map");
+
+app.MapGet(
+        "/api/map/users",
+        async (
+            string city,
+            string state,
+            CityMapDbContext dbContext,
+            CancellationToken cancellationToken
+        ) =>
+        {
+            if (string.IsNullOrWhiteSpace(city) || string.IsNullOrWhiteSpace(state))
+            {
+                return Results.BadRequest();
+            }
+
+            var users = await dbContext
+                .Submissions.AsNoTracking()
+                .Where(submission =>
+                    submission.City == city
+                    && submission.State == state
+                    && submission.Name != null
+                    && submission.EmailAddress != null
+                )
+                .OrderBy(submission => submission.Name)
+                .Select(submission => new MapUserDto(submission.Name!, submission.EmailAddress!))
+                .ToListAsync(cancellationToken);
+
+            return Results.Ok(users);
+        }
+    )
+    .RequireRateLimiting("map");
+
+app.MapDefaultEndpoints();
+
+app.Run();
+
+static bool IsValidSubmission(SubmissionRequest request)
+{
+    if (string.IsNullOrWhiteSpace(request.City) || string.IsNullOrWhiteSpace(request.State))
+    {
+        return false;
+    }
+
+    if (request.City.Trim().Length > 100 || request.State.Trim().Length > 50)
+    {
+        return false;
+    }
+
+    if (!string.IsNullOrWhiteSpace(request.Name) && request.Name.Trim().Length > 100)
+    {
+        return false;
+    }
+
+    if (string.IsNullOrWhiteSpace(request.EmailAddress))
+    {
+        return true;
+    }
+
+    var emailAddress = request.EmailAddress.Trim();
+    return emailAddress.Length <= 254
+        && new System.ComponentModel.DataAnnotations.EmailAddressAttribute().IsValid(emailAddress);
+}
+
+static string? TrimToNull(string? value)
+{
+    return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+}
+
+static void EnsureSqliteDatabaseDirectory(CityMapDbContext dbContext)
+{
+    if (!dbContext.Database.IsSqlite())
+    {
+        return;
+    }
+
+    var connectionString = dbContext.Database.GetConnectionString();
+    if (string.IsNullOrWhiteSpace(connectionString))
+    {
+        return;
+    }
+
+    var builder = new SqliteConnectionStringBuilder(connectionString);
+    var dataSource = builder.DataSource;
+
+    if (
+        string.IsNullOrWhiteSpace(dataSource)
+        || string.Equals(dataSource, ":memory:", StringComparison.OrdinalIgnoreCase)
+    )
+    {
+        return;
+    }
+
+    var directory = Path.GetDirectoryName(Path.GetFullPath(dataSource));
+    if (!string.IsNullOrWhiteSpace(directory))
+    {
+        Directory.CreateDirectory(directory);
+    }
+}
+
+static void EnsureSubmissionContactColumns(CityMapDbContext dbContext)
+{
+    if (!dbContext.Database.IsSqlite())
+    {
+        return;
+    }
+
+    var connection = dbContext.Database.GetDbConnection();
+    var shouldCloseConnection = connection.State != ConnectionState.Open;
+
+    if (shouldCloseConnection)
+    {
+        connection.Open();
+    }
+
+    try
+    {
+        var existingColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "PRAGMA table_info('Submissions');";
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                existingColumns.Add(reader.GetString(1));
+            }
+        }
+
+        if (!existingColumns.Contains(nameof(Submission.Name)))
+        {
+            dbContext.Database.ExecuteSqlRaw("ALTER TABLE Submissions ADD COLUMN Name TEXT NULL;");
+        }
+
+        if (!existingColumns.Contains(nameof(Submission.EmailAddress)))
+        {
+            dbContext.Database.ExecuteSqlRaw(
+                "ALTER TABLE Submissions ADD COLUMN EmailAddress TEXT NULL;"
+            );
+        }
+    }
+    finally
+    {
+        if (shouldCloseConnection)
+        {
+            connection.Close();
+        }
+    }
+}
