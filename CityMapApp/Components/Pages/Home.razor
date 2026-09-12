@@ -36,7 +36,10 @@
                 </div>
                 <div class="field"><label for="name">Name <span>optional — shared only if you include an email</span></label><InputText id="name" @bind-Value="_request.Name" placeholder="Your name" /><ValidationMessage For="() => _request.Name" /></div>
                 <div class="field"><label for="email">Email <span>optional</span></label><InputText id="email" type="email" @bind-Value="_request.EmailAddress" placeholder="you@example.com" /><ValidationMessage For="() => _request.EmailAddress" /></div>
-                <button type="submit" class="submit-button" disabled="@_submitting">@(_submitting ? "Adding location..." : "Place me on the map")</button>
+                <div class="form-actions">
+                    <button type="submit" class="submit-button" disabled="@_submitting">@(_submitting ? "Adding location..." : "Place me on the map")</button>
+                    <a class="map-button" href="map">View the map</a>
+                </div>
             </EditForm>
             @if (!string.IsNullOrWhiteSpace(_message))
             {
@@ -46,12 +49,4 @@
     </div>
 </div>
 </section>
-
 <section id="about" class="story-band"><div><p class="eyebrow">CONNECTED BY CURIOSITY</p><h2>Every pin tells a story.</h2></div><p>From lifelong locals to brand-new neighbors, our map celebrates the people who gather, question, grow, and thrive together in Southern Utah.</p></section>
-<footer>
-    <a class="footer-brand" href="" aria-label="Thrive St. George home">
-        <img src="images/thrive-st-george-logo.png" alt="Thrive St. George" />
-    </a>
-    <nav aria-label="Footer navigation"><a href="">Home</a><a href="#add-location">Add location</a><a href="map">Map</a></nav>
-    <p>A community built to question, connect, and thrive.<br />&copy; 2026 Thrive St. George</p>
-</footer>
