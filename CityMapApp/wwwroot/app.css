@@ -66,7 +66,7 @@ h1, h2, p {
 
 .hero-home {
     position: relative;
-    min-height: calc(100svh - 72px);
+    min-height: calc(100svh - 53px);
     overflow: hidden;
     color: #fff;
     background: linear-gradient(90deg,rgba(16,13,12,.88),rgba(16,13,12,.60) 49%,rgba(16,13,12,.42)),url('images/desert-flower.jpg') 60% center/cover no-repeat
@@ -228,7 +228,14 @@ h1, h2, p {
     font-size: .76rem
 }
 
-.submit-button, .cta-button {
+.form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: center
+}
+
+.submit-button, .cta-button, .map-button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -248,9 +255,16 @@ h1, h2, p {
     transition: .15s
 }
 
-    .submit-button:hover, .cta-button:hover {
+    .map-button {
+        background: var(--teal);
+        color: #fff;
+        text-decoration: none
+    }
+
+    .submit-button:hover, .cta-button:hover, .map-button:hover {
         background: #ffd637;
         box-shadow: 2px 2px 0 var(--ink);
+        color: var(--ink);
         transform: translate(3px,3px)
     }
 
@@ -376,7 +390,7 @@ footer > p {
 
 .map-page-header {
     position: relative;
-    min-height: clamp(380px,72vh,780px);
+    height: clamp(260px,70svh,420px);
     margin: 0 calc(clamp(1.5rem,6vw,6rem)*-1) 3.5rem;
     overflow: hidden;
     border-bottom: 12px solid var(--gold);
@@ -384,7 +398,7 @@ footer > p {
     background: linear-gradient(0deg,rgba(0,0,0,.72),rgba(0,0,0,.08) 62%),url('https://stgeorgethrivetest.my.canva.site/st-george-thrive-website/_assets/video/794738cea8028670652e650ee180eac8.jpg') center/cover no-repeat
 }
 
-.map-page-header-copy {
+.map-page-inside-header {
     position: absolute;
     z-index: 3;
     right: clamp(1.5rem,7vw,8rem);
@@ -394,7 +408,8 @@ footer > p {
 }
 
 .map-page-header .eyebrow {
-    color: #78e9f1
+    color: #78e9f1;
+    text-shadow: 2px 2px 3px #000
 }
 
 .map-page-header h1 {
@@ -403,7 +418,8 @@ footer > p {
     font-weight: 900;
     line-height: .84;
     letter-spacing: -.05em;
-    text-transform: uppercase
+    text-transform: uppercase;
+    text-shadow: 2px 2px 3px #000
 }
 
 .map-page-header-copy > p:last-child {
@@ -419,6 +435,23 @@ footer > p {
     border: 8px solid #fff;
     box-shadow: 0 18px 55px rgba(52,38,24,.15)
 }
+
+.empty-map-state {
+    display: flex;
+    min-height: 280px;
+    align-items: center;
+    justify-content: center;
+    margin-top: 2rem;
+    padding: 2rem;
+    border: 8px solid #fff;
+    background: rgba(255,255,255,.55);
+    box-shadow: 0 18px 55px rgba(52,38,24,.15);
+    text-align: center
+}
+
+    .empty-map-state p {
+        margin: 0;
+    }
 
 .city-grid-section {
     margin-top: 3.5rem !important
@@ -534,6 +567,10 @@ footer > p {
     }
 
 @media(max-width:800px) {
+    .hero-home {
+        min-height: calc(100svh - 64px)
+    }
+
     .location-section {
         grid-template-columns: 1fr;
         gap: 2.7rem;
@@ -570,6 +607,11 @@ footer > p {
         border-width: 4px
     }
 
+    .empty-map-state {
+        min-height: 215px;
+        border-width: 4px
+    }
+
     footer {
         grid-template-columns: 1fr
     }
@@ -580,6 +622,15 @@ footer > p {
 }
 
 @media(max-width:520px) {
+    .form-actions {
+        align-items: stretch;
+        flex-direction: column
+    }
+
+        .form-actions .submit-button, .form-actions .map-button {
+            width: 100%
+        }
+
     .field-row {
         grid-template-columns: 1fr 105px
     }
