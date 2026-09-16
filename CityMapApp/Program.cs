@@ -265,6 +265,40 @@ app.MapGet(
     )
     .RequireRateLimiting("map");
 
+app.MapDelete(
+        "/api/submissions/me",
+        async (
+            HttpContext httpContext,
+            CityMapDbContext dbContext,
+            CancellationToken cancellationToken
+        ) =>
+        {
+            var existingToken = httpContext.Request.Cookies[userTokenCookieName];
+            if (string.IsNullOrWhiteSpace(existingToken))
+            {
+                return Results.Ok(new SubmissionStatusResponse(false));
+            }
+
+            var submissionsToDelete = await dbContext
+                .Submissions
+                .Where(submission => submission.UserToken == existingToken)
+                .ToListAsync(cancellationToken);
+
+            if (submissionsToDelete.Count == 0)
+            {
+                return Results.Ok(new SubmissionStatusResponse(false));
+            }
+
+            dbContext.Submissions.RemoveRange(submissionsToDelete);
+            await dbContext.SaveChangesAsync(cancellationToken);
+
+            httpContext.Response.Cookies.Delete(userTokenCookieName);
+
+            return Results.Ok(new SubmissionStatusResponse(false));
+        }
+    )
+    .RequireRateLimiting("submission");
+
 app.MapDefaultEndpoints();
 
 app.Run();
@@ -381,3 +415,5 @@ static void EnsureSubmissionContactColumns(CityMapDbContext dbContext)
         }
     }
 }
+
+public partial class Program { }
