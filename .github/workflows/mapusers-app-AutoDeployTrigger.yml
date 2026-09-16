@@ -8,7 +8,7 @@ on:
       [ master ]
     paths:
     - '**'
-    - '.github/workflows/mapusers-app-AutoDeployTrigger-630e9700-6cbb-4eb2-b209-c7d773ee68d9.yml'
+    - '.github/workflows/mapusers-app-AutoDeployTrigger.yml'
 
   # Allow manual trigger 
   workflow_dispatch:      
