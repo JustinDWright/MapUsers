@@ -34,16 +34,13 @@ jobs:
       - name: Build and push container image to registry
         uses: azure/container-apps-deploy-action@v2
         with:
-          appSourcePath: ${{ github.workspace }}/CityMapApp
-          _dockerfilePathKey_: _dockerfilePath_
-          _targetLabelKey_: _targetLabel_
+          appSourcePath: ${{ github.workspace }}
+          dockerfilePath: ./CityMapApp/Dockerfile
           registryUrl: thrivelocationacr.azurecr.io
           registryUsername: ${{ secrets.MAPUSERSAPP_REGISTRY_USERNAME }}
           registryPassword: ${{ secrets.MAPUSERSAPP_REGISTRY_PASSWORD }}
           containerAppName: mapusers-app
           resourceGroup: thrive
           imageToBuild: thrivelocationacr.azurecr.io/mapusers-app:${{ github.sha }}
-          _buildArgumentsKey_: |
-            _buildArgumentsValues_
 
 
