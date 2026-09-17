@@ -34,13 +34,29 @@ public partial class Home
     private async Task SubmitAsync(EditContext c)
     {
         _message = null;
-        if (!c.Validate())
-            return; _submitting = true;
+        if (_hasSubmitted || !c.Validate())
+        {
+            return;
+        }
+
+        _submitting = true;
 
         try
         {
             var response = await Http.PostAsJsonAsync("/api/submissions", new SubmissionRequest(_request.City, _request.State, _request.Name, _request.EmailAddress));
-            var payload = await response.Content.ReadFromJsonAsync<SubmissionResponse>(); if (payload?.Success == true) { Navigation.NavigateTo("/map", true); return; }
+            var payload = await response.Content.ReadFromJsonAsync<SubmissionResponse>();
+            if (payload?.Success == true)
+            {
+                _hasSubmitted = true;
+                Navigation.NavigateTo("/map", true);
+                return;
+            }
+
+            if (string.Equals(payload?.Message, "Already submitted", StringComparison.OrdinalIgnoreCase))
+            {
+                _hasSubmitted = true;
+            }
+
             _message = payload?.Message ?? "Unable to add your location right now.";
         }
         catch (Exception)

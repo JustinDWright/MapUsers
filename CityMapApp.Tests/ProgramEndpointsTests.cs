@@ -86,6 +86,68 @@ public sealed class ProgramEndpointsTests : IDisposable
         Assert.Equal([new MapUserDto("Alice", "alice@example.test")], users);
     }
 
+    [Fact]
+    public async Task AllMapUsers_ReturnsEverySubmission_OrderedByName()
+    {
+        await SubmitAsync(new SubmissionRequest("Cedar City", "UT", "Zed", "zed@example.test"));
+        await SubmitAsync(new SubmissionRequest("St. George", "UT", "Alice", "alice@example.test"));
+
+        using var client = CreateClient();
+        var users = await client.GetFromJsonAsync<List<MapUserDto>>("/api/map/users/all");
+
+        Assert.Equal(
+            [
+                new MapUserDto("Alice", "alice@example.test"),
+                new MapUserDto("Zed", "zed@example.test"),
+            ],
+            users
+        );
+    }
+
+    [Fact]
+    public async Task DeleteMySubmission_RemovesOnlyTheCurrentUsersSubmission_AndClearsTheCookie()
+    {
+        using var ownerClient = CreateClient();
+        using var otherClient = CreateClient();
+
+        using var ownerSubmission = await ownerClient.PostAsJsonAsync(
+            "/api/submissions",
+            new SubmissionRequest("St. George", "UT", "Alice", "alice@example.test")
+        );
+        using var otherSubmission = await otherClient.PostAsJsonAsync(
+            "/api/submissions",
+            new SubmissionRequest("Cedar City", "UT", "Zed", "zed@example.test")
+        );
+
+        using var deleteResponse = await ownerClient.DeleteAsync("/api/submissions/me");
+        var deleteResult = await deleteResponse.Content.ReadFromJsonAsync<SubmissionStatusResponse>();
+        var pins = await ownerClient.GetFromJsonAsync<List<MapPinDto>>("/api/map");
+
+        Assert.Equal(HttpStatusCode.OK, deleteResponse.StatusCode);
+        Assert.Equal(new SubmissionStatusResponse(false), deleteResult);
+        Assert.Contains(
+            deleteResponse.Headers.GetValues("Set-Cookie"),
+            header => header.StartsWith("citymap-user-token=", StringComparison.OrdinalIgnoreCase)
+        );
+        Assert.Equal([new MapPinDto("Cedar City", "UT", 37.0965, -113.5684, 1, 1)], pins);
+    }
+
+    [Fact]
+    public async Task ForceDeleteSubmissions_RemovesEverySubmission()
+    {
+        await SubmitAsync(new SubmissionRequest("St. George", "UT", "Alice", "alice@example.test"));
+        await SubmitAsync(new SubmissionRequest("Cedar City", "UT", "Zed", "zed@example.test"));
+
+        using var client = CreateClient();
+        using var deleteResponse = await client.DeleteAsync("/api/submissions/all/force");
+        var deleteResult = await deleteResponse.Content.ReadFromJsonAsync<SubmissionStatusResponse>();
+        var pins = await client.GetFromJsonAsync<List<MapPinDto>>("/api/map");
+
+        Assert.Equal(HttpStatusCode.OK, deleteResponse.StatusCode);
+        Assert.Equal(new SubmissionStatusResponse(false), deleteResult);
+        Assert.Empty(pins!);
+    }
+
     private HttpClient CreateClient() => _factory.CreateClient(
         new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") }
     );

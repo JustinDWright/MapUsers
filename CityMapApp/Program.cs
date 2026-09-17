@@ -108,10 +108,14 @@ app.MapPost(
             if (!string.IsNullOrWhiteSpace(existingToken))
             {
                 var alreadySubmitted = await dbContext
-                    .Submissions.AsNoTracking()
-                    .AnyAsync(
-                        submission => submission.UserToken == existingToken,
-                        cancellationToken
+                    .Submissions
+                    .AsNoTracking()
+                    .AnyAsync(submission => 
+                        submission.UserToken == existingToken
+                        || submission.Name == request.Name
+                           && submission.EmailAddress == request.EmailAddress
+                           && submission.City == request.City
+                           && submission.State == request.State, cancellationToken
                     );
 
                 if (alreadySubmitted)
@@ -192,6 +196,87 @@ app.MapGet(
 );
 
 app.MapGet(
+        "/api/submissions/all",
+        async (
+            CityMapDbContext dbContext,
+            CancellationToken cancellationToken
+        ) =>
+        {
+            var users = await dbContext
+                .Submissions.AsNoTracking()
+                .OrderBy(submission => submission.Name)
+                .Select(submission => new MapSubmissionDto(
+                    submission.Name,
+                    submission.EmailAddress,
+                    submission.City,
+                    submission.State,
+                    submission.Latitude,
+                    submission.Longitude
+                ))
+                .ToListAsync(cancellationToken);
+
+            return Results.Ok(users);
+        }
+    );
+
+app.MapDelete(
+        "/api/submissions/me",
+        async (
+            HttpContext httpContext,
+            CityMapDbContext dbContext,
+            CancellationToken cancellationToken
+        ) =>
+        {
+            var existingToken = httpContext.Request.Cookies[userTokenCookieName];
+
+            if (!string.IsNullOrWhiteSpace(existingToken))
+            {
+                var submission = await dbContext.Submissions.FirstOrDefaultAsync(
+                    item => item.UserToken == existingToken,
+                    cancellationToken
+                );
+
+                if (submission is not null)
+                {
+                    dbContext.Submissions.Remove(submission);
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                }
+            }
+
+            httpContext.Response.Cookies.Delete(userTokenCookieName);
+            return Results.Ok(new SubmissionStatusResponse(false));
+        }
+    )
+    .RequireRateLimiting("submission");
+
+app.MapDelete(
+        "/api/submissions/all/force",
+        async (
+            HttpContext httpContext,
+            CityMapDbContext dbContext,
+            CancellationToken cancellationToken
+        ) =>
+        {
+            var submissionsToDelete = await dbContext
+                .Submissions
+                .ToListAsync(cancellationToken);
+
+            if (submissionsToDelete.Count == 0)
+            {
+                return Results.Ok(new DeleteResponse(false, "No map submissions to delete"));
+            }
+
+            dbContext.Submissions.RemoveRange(submissionsToDelete);
+            await dbContext.SaveChangesAsync(cancellationToken);
+
+            httpContext.Response.Cookies.Delete(userTokenCookieName);
+
+            return Results.Ok(new DeleteResponse(true, "Deleted all map submissions"));
+        }
+    )
+    .RequireRateLimiting("submission");
+
+app.MapGet(
         "/api/map",
         async (CityMapDbContext dbContext, CancellationToken cancellationToken) =>
         {
@@ -265,39 +350,23 @@ app.MapGet(
     )
     .RequireRateLimiting("map");
 
-app.MapDelete(
-        "/api/submissions/me",
-        async (
-            HttpContext httpContext,
-            CityMapDbContext dbContext,
-            CancellationToken cancellationToken
-        ) =>
+app.MapGet(
+        "/api/map/users/all",
+        async (CityMapDbContext dbContext, CancellationToken cancellationToken) =>
         {
-            var existingToken = httpContext.Request.Cookies[userTokenCookieName];
-            if (string.IsNullOrWhiteSpace(existingToken))
-            {
-                return Results.Ok(new SubmissionStatusResponse(false));
-            }
-
-            var submissionsToDelete = await dbContext
-                .Submissions
-                .Where(submission => submission.UserToken == existingToken)
+            var users = await dbContext
+                .Submissions.AsNoTracking()
+                .Where(submission =>
+                    submission.Name != null && submission.EmailAddress != null
+                )
+                .OrderBy(submission => submission.Name)
+                .Select(submission => new MapUserDto(submission.Name!, submission.EmailAddress!))
                 .ToListAsync(cancellationToken);
 
-            if (submissionsToDelete.Count == 0)
-            {
-                return Results.Ok(new SubmissionStatusResponse(false));
-            }
-
-            dbContext.Submissions.RemoveRange(submissionsToDelete);
-            await dbContext.SaveChangesAsync(cancellationToken);
-
-            httpContext.Response.Cookies.Delete(userTokenCookieName);
-
-            return Results.Ok(new SubmissionStatusResponse(false));
+            return Results.Ok(users);
         }
     )
-    .RequireRateLimiting("submission");
+    .RequireRateLimiting("map");
 
 app.MapDefaultEndpoints();
 
