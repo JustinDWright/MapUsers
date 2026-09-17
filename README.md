@@ -1,4 +1,4 @@
-# Thrive St. George Community Map
+# Community Map
 
 This project is a Blazor web application that lets people add their hometown to a shared community map and see where others in the Thrive St. George community are from. It combines a simple form for location submissions with a map view that groups entries by city and state.
 
