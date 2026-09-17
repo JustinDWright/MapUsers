@@ -67,8 +67,7 @@ using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<CityMapDbContext>();
     EnsureSqliteDatabaseDirectory(dbContext);
-    dbContext.Database.EnsureCreated();
-    EnsureSubmissionContactColumns(dbContext);
+    InitializeDatabase(dbContext);
 }
 
 // Configure the HTTP request pipeline.
@@ -433,6 +432,28 @@ static void EnsureSqliteDatabaseDirectory(CityMapDbContext dbContext)
     {
         Directory.CreateDirectory(directory);
     }
+}
+
+static void InitializeDatabase(CityMapDbContext dbContext)
+{
+    const int maximumAttempts = 5;
+
+    for (var attempt = 1; attempt <= maximumAttempts; attempt++)
+    {
+        try
+        {
+            dbContext.Database.EnsureCreated();
+            EnsureSubmissionContactColumns(dbContext);
+            return;
+        }
+        catch (SqliteException exception) when (exception.SqliteErrorCode == 5 && attempt < maximumAttempts)
+        {
+            Thread.Sleep(TimeSpan.FromSeconds(attempt * 2));
+        }
+    }
+
+    dbContext.Database.EnsureCreated();
+    EnsureSubmissionContactColumns(dbContext);
 }
 
 static void EnsureSubmissionContactColumns(CityMapDbContext dbContext)
