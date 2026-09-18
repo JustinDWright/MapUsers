@@ -33,10 +33,10 @@ public sealed class ProgramEndpointsTests : IDisposable
         using var client = CreateClient();
 
         var response = await client.PostAsJsonAsync("/api/submissions", new SubmissionRequest("", "UT"));
-        var body = await response.Content.ReadFromJsonAsync<SubmissionResponse>();
+        var body = await response.Content.ReadAsStringAsync();
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal(new SubmissionResponse(false, "Invalid city or state"), body);
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.Contains("City and state are required.", body);
     }
 
     [Fact]
@@ -57,7 +57,7 @@ public sealed class ProgramEndpointsTests : IDisposable
         var status = await client.GetFromJsonAsync<SubmissionStatusResponse>("/api/submissions/me");
         var duplicate = await client.PostAsJsonAsync(
             "/api/submissions",
-            new SubmissionRequest("St. George", "UT")
+            new SubmissionRequest("St. George", "UT", EmailAddress: "alice@example.test")
         );
 
         Assert.NotNull(status);
@@ -69,7 +69,7 @@ public sealed class ProgramEndpointsTests : IDisposable
     public async Task MapEndpoints_GroupLocations_AndReturnOnlySharedContacts()
     {
         await SubmitAsync(new SubmissionRequest("St. George", "UT", "Alice", "alice@example.test"));
-        await SubmitAsync(new SubmissionRequest("St. George", "UT"));
+        await SubmitAsync(new SubmissionRequest("St. George", "UT", EmailAddress: "anonymous@example.test"));
         await SubmitAsync(new SubmissionRequest("Cedar City", "UT", "Zed", "zed@example.test"));
 
         using var client = CreateClient();

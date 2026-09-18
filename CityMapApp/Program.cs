@@ -105,10 +105,7 @@ app.MapPost(
             CancellationToken cancellationToken
         ) =>
         {
-            if (!IsValidSubmission(request))
-            {
-                return Results.BadRequest(new SubmissionResponse(false, "Invalid city or state"));
-            }
+            TryValidateSubmission(request);
 
             var existingToken = httpContext.Request.Cookies[userTokenCookieName];
 
@@ -372,31 +369,34 @@ app.MapDefaultEndpoints();
 
 app.Run();
 
-static bool IsValidSubmission(SubmissionRequest request)
+static void TryValidateSubmission(SubmissionRequest request)
 {
     if (string.IsNullOrWhiteSpace(request.City) || string.IsNullOrWhiteSpace(request.State))
     {
-        return false;
+        throw new ArgumentException("City and state are required.");
     }
 
     if (request.City.Trim().Length > 100 || request.State.Trim().Length > 50)
     {
-        return false;
+        throw new ArgumentException("City and state must be 100 characters or less.");
     }
 
     if (!string.IsNullOrWhiteSpace(request.Name) && request.Name.Trim().Length > 100)
     {
-        return false;
+        throw new ArgumentException("Name must be 100 characters or less.");
     }
 
     if (string.IsNullOrWhiteSpace(request.EmailAddress))
     {
-        return true;
+        throw new ArgumentException("Email address is required.");
     }
 
     var emailAddress = request.EmailAddress.Trim();
-    return emailAddress.Length <= 254
-        && new System.ComponentModel.DataAnnotations.EmailAddressAttribute().IsValid(emailAddress);
+    if (emailAddress.Length > 255
+        || !new System.ComponentModel.DataAnnotations.EmailAddressAttribute().IsValid(emailAddress))
+    {
+        throw new ArgumentException("Email address is invalid.");
+    }
 }
 
 static string? TrimToNull(string? value)
