@@ -1,11 +1,26 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: citymap
+      POSTGRES_USER: citymap
+      POSTGRES_PASSWORD: citymap
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U citymap -d citymap"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   citymapapp:
     image: ${DOCKER_REGISTRY-}citymapapp
     build:
       context: .
       dockerfile: CityMapApp/Dockerfile
-    volumes:
-      - citymap-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
-  citymap-data:
+  postgres-data:

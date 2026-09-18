@@ -3,7 +3,7 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_HTTP_PORTS=5156
-      - ConnectionStrings__CityMapDb=Data Source=/data/citymap.dev.db
+      - ConnectionStrings__CityMapDb=Host=postgres;Port=5432;Database=citymap;Username=citymap;Password=citymap
       - InternalBaseAddress=http://127.0.0.1:5156/
     ports:
       - "5156"

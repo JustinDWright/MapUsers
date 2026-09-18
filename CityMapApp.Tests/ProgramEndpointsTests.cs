@@ -169,14 +169,13 @@ public sealed class ProgramEndpointsTests : IDisposable
 
     public sealed class TestApplicationFactory : WebApplicationFactory<Program>
     {
-        private readonly string _databasePath = Path.Combine(
-            Path.GetTempPath(),
-            $"citymap-tests-{Guid.NewGuid():N}.db"
-        );
+        private readonly string _databaseName = $"CityMapApp.Tests.{Guid.NewGuid():N}";
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
-            builder.UseSetting("ConnectionStrings:CityMapDb", $"Data Source={_databasePath}");
+            builder.UseSetting("Database:UseMigrations", "false");
+            builder.UseSetting("Database:Provider", "InMemory");
+            builder.UseSetting("Database:Name", _databaseName);
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<IGeocodingService>();
@@ -184,21 +183,6 @@ public sealed class ProgramEndpointsTests : IDisposable
             });
         }
 
-        protected override void Dispose(bool disposing)
-        {
-            base.Dispose(disposing);
-            if (disposing)
-            {
-                try
-                {
-                    File.Delete(_databasePath);
-                }
-                catch (IOException)
-                {
-                    // SQLite can retain a short-lived handle after the test host shuts down.
-                }
-            }
-        }
     }
 
     private sealed class FakeGeocodingService : IGeocodingService

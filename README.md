@@ -13,7 +13,7 @@ The app is designed to help a community connect by collecting and visualizing wh
 - browse the aggregated list of cities and counts
 - see shared community contact details for a selected city when available
 
-The application stores submissions in SQLite and uses geocoding to translate a city and state into latitude and longitude coordinates before plotting them on the map.
+The application stores submissions in PostgreSQL and uses geocoding to translate a city and state into latitude and longitude coordinates before plotting them on the map.
 
 ## What the app does
 
@@ -34,7 +34,7 @@ The experience is split into two main parts:
 
 - .NET 10 / ASP.NET Core
 - Blazor Server
-- Entity Framework Core with SQLite
+- Entity Framework Core with PostgreSQL
 - OpenStreetMap Nominatim for geocoding
 - Docker Compose support for local containerized running
 
@@ -60,6 +60,10 @@ dotnet watch run
 
 Then open the local URL shown by the app in your browser.
 
+The local .NET process expects PostgreSQL at `localhost:5432` with database
+`citymap`, user `citymap`, and password `citymap`. The easiest way to provide it
+is to run `docker compose up postgres` in another terminal.
+
 ### Run with Docker Compose
 
 From the project root:
@@ -69,6 +73,12 @@ docker compose up --build
 ```
 
 This builds and starts the application using the provided Docker configuration.
+
+The Compose configuration starts PostgreSQL with a persistent named volume. In
+production, set `ConnectionStrings__CityMapDb` to the managed PostgreSQL
+connection string in the container environment; do not commit production
+credentials. Database schema updates are applied through EF Core migrations at
+startup.
 
 ## Typical workflow
 

@@ -1,12 +1,11 @@
-using System.Data;
 using CityMapApp.Components;
 using CityMapApp.Data;
 using CityMapApp.Models;
 using CityMapApp.Services;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.RateLimiting;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using Shared.DTOs;
 using Shared.Requests;
 using Shared.Responses;
@@ -22,16 +21,25 @@ builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 builder.Services.AddScoped(sp =>
 {
     var navigationManager = sp.GetRequiredService<NavigationManager>();
-    var baseAddress =
-        builder.Configuration["InternalBaseAddress"] ?? navigationManager.BaseUri;
+    var baseAddress = builder.Configuration["InternalBaseAddress"] ?? navigationManager.BaseUri;
     return new HttpClient { BaseAddress = new Uri(baseAddress) };
 });
 
 builder.Services.AddDbContext<CityMapDbContext>(options =>
-    options.UseSqlite(
-        builder.Configuration.GetConnectionString("CityMapDb") ?? "Data Source=citymap.db"
-    )
-);
+{
+    if (builder.Configuration["Database:Provider"] == "InMemory")
+    {
+        options.UseInMemoryDatabase(builder.Configuration["Database:Name"] ?? "CityMapApp.Tests");
+        return;
+    }
+
+    options.UseNpgsql(
+        builder.Configuration.GetConnectionString("CityMapDb")
+            ?? throw new InvalidOperationException(
+                "The ConnectionStrings:CityMapDb configuration value is required."
+            )
+    );
+});
 
 builder.Services.AddHttpClient<IGeocodingService, GeocodingService>(client =>
 {
@@ -67,8 +75,7 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<CityMapDbContext>();
-    EnsureSqliteDatabaseDirectory(dbContext);
-    InitializeDatabase(dbContext);
+    InitializeDatabase(dbContext, builder.Configuration.GetValue("Database:UseMigrations", true));
 }
 
 // Configure the HTTP request pipeline.
@@ -107,22 +114,22 @@ app.MapPost(
 
             if (!string.IsNullOrWhiteSpace(existingToken))
             {
-                var alreadySubmitted = await dbContext
-                    .Submissions
-                    .AsNoTracking()
-                    .AnyAsync(submission => 
-                        submission.UserToken == existingToken
-                        || submission.Name == request.Name
-                           && submission.EmailAddress == request.EmailAddress
-                           && submission.City == request.City
-                           && submission.State == request.State, cancellationToken
-                    );
-
-                if (alreadySubmitted)
-                {
-                    return Results.Ok(new SubmissionResponse(false, "Already submitted"));
-                }
+                return Results.Ok(new SubmissionResponse(false, "Already submitted"));
             }
+
+            var alreadySubmitted = await dbContext
+                .Submissions.AsNoTracking()
+                .AnyAsync(
+                    submission =>
+                        submission.UserToken == existingToken
+                        || submission.EmailAddress == request.EmailAddress,
+                    cancellationToken
+                );
+
+            if (alreadySubmitted)
+            {
+                return Results.Ok(new SubmissionResponse(false, "Already submitted"));
+            }            
 
             var geocodeResult = await geocodingService.GeocodeAsync(
                 request.City,
@@ -196,28 +203,25 @@ app.MapGet(
 );
 
 app.MapGet(
-        "/api/submissions/all",
-        async (
-            CityMapDbContext dbContext,
-            CancellationToken cancellationToken
-        ) =>
-        {
-            var users = await dbContext
-                .Submissions.AsNoTracking()
-                .OrderBy(submission => submission.Name)
-                .Select(submission => new MapSubmissionDto(
-                    submission.Name,
-                    submission.EmailAddress,
-                    submission.City,
-                    submission.State,
-                    submission.Latitude,
-                    submission.Longitude
-                ))
-                .ToListAsync(cancellationToken);
+    "/api/submissions/all",
+    async (CityMapDbContext dbContext, CancellationToken cancellationToken) =>
+    {
+        var users = await dbContext
+            .Submissions.AsNoTracking()
+            .OrderBy(submission => submission.Name)
+            .Select(submission => new MapSubmissionDto(
+                submission.Name,
+                submission.EmailAddress,
+                submission.City,
+                submission.State,
+                submission.Latitude,
+                submission.Longitude
+            ))
+            .ToListAsync(cancellationToken);
 
-            return Results.Ok(users);
-        }
-    );
+        return Results.Ok(users);
+    }
+);
 
 app.MapDelete(
         "/api/submissions/me",
@@ -257,9 +261,7 @@ app.MapDelete(
             CancellationToken cancellationToken
         ) =>
         {
-            var submissionsToDelete = await dbContext
-                .Submissions
-                .ToListAsync(cancellationToken);
+            var submissionsToDelete = await dbContext.Submissions.ToListAsync(cancellationToken);
 
             if (submissionsToDelete.Count == 0)
             {
@@ -356,9 +358,7 @@ app.MapGet(
         {
             var users = await dbContext
                 .Submissions.AsNoTracking()
-                .Where(submission =>
-                    submission.Name != null && submission.EmailAddress != null
-                )
+                .Where(submission => submission.Name != null && submission.EmailAddress != null)
                 .OrderBy(submission => submission.Name)
                 .Select(submission => new MapUserDto(submission.Name!, submission.EmailAddress!))
                 .ToListAsync(cancellationToken);
@@ -404,105 +404,28 @@ static string? TrimToNull(string? value)
     return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
 
-static void EnsureSqliteDatabaseDirectory(CityMapDbContext dbContext)
+static void InitializeDatabase(CityMapDbContext dbContext, bool useMigrations)
 {
-    if (!dbContext.Database.IsSqlite())
+    if (!useMigrations)
     {
+        dbContext.Database.EnsureCreated();
         return;
     }
 
-    var connectionString = dbContext.Database.GetConnectionString();
-    if (string.IsNullOrWhiteSpace(connectionString))
-    {
-        return;
-    }
-
-    var builder = new SqliteConnectionStringBuilder(connectionString);
-    var dataSource = builder.DataSource;
-
-    if (
-        string.IsNullOrWhiteSpace(dataSource)
-        || string.Equals(dataSource, ":memory:", StringComparison.OrdinalIgnoreCase)
-    )
-    {
-        return;
-    }
-
-    var directory = Path.GetDirectoryName(Path.GetFullPath(dataSource));
-    if (!string.IsNullOrWhiteSpace(directory))
-    {
-        Directory.CreateDirectory(directory);
-    }
-}
-
-static void InitializeDatabase(CityMapDbContext dbContext)
-{    
     for (var attempt = 1; attempt <= maximumDbAttempts; attempt++)
     {
         try
         {
-            dbContext.Database.EnsureCreated();
-            EnsureSubmissionContactColumns(dbContext);
+            dbContext.Database.Migrate();
             return;
         }
-        catch (SqliteException exception) when (exception.SqliteErrorCode == 5 && attempt < maximumDbAttempts)
+        catch (NpgsqlException) when (attempt < maximumDbAttempts)
         {
             Thread.Sleep(TimeSpan.FromSeconds(attempt * 2));
         }
     }
 
-    dbContext.Database.EnsureCreated();
-    EnsureSubmissionContactColumns(dbContext);
-}
-
-static void EnsureSubmissionContactColumns(CityMapDbContext dbContext)
-{
-    if (!dbContext.Database.IsSqlite())
-    {
-        return;
-    }
-
-    var connection = dbContext.Database.GetDbConnection();
-    var shouldCloseConnection = connection.State != ConnectionState.Open;
-
-    if (shouldCloseConnection)
-    {
-        connection.Open();
-    }
-
-    try
-    {
-        var existingColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        using (var command = connection.CreateCommand())
-        {
-            command.CommandText = "PRAGMA table_info('Submissions');";
-
-            using var reader = command.ExecuteReader();
-            while (reader.Read())
-            {
-                existingColumns.Add(reader.GetString(1));
-            }
-        }
-
-        if (!existingColumns.Contains(nameof(Submission.Name)))
-        {
-            dbContext.Database.ExecuteSqlRaw("ALTER TABLE Submissions ADD COLUMN Name TEXT NULL;");
-        }
-
-        if (!existingColumns.Contains(nameof(Submission.EmailAddress)))
-        {
-            dbContext.Database.ExecuteSqlRaw(
-                "ALTER TABLE Submissions ADD COLUMN EmailAddress TEXT NULL;"
-            );
-        }
-    }
-    finally
-    {
-        if (shouldCloseConnection)
-        {
-            connection.Close();
-        }
-    }
+    dbContext.Database.Migrate();
 }
 
 public partial class Program { }
