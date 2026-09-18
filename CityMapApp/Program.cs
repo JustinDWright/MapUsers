@@ -14,6 +14,7 @@ using Shared.Responses;
 var builder = WebApplication.CreateBuilder(args);
 const string userTokenCookieName = "citymap-user-token";
 const string openStreetMapUrl = "https://nominatim.openstreetmap.org/";
+const int maximumDbAttempts = 5;
 
 builder.AddServiceDefaults();
 
@@ -435,10 +436,8 @@ static void EnsureSqliteDatabaseDirectory(CityMapDbContext dbContext)
 }
 
 static void InitializeDatabase(CityMapDbContext dbContext)
-{
-    const int maximumAttempts = 5;
-
-    for (var attempt = 1; attempt <= maximumAttempts; attempt++)
+{    
+    for (var attempt = 1; attempt <= maximumDbAttempts; attempt++)
     {
         try
         {
@@ -446,7 +445,7 @@ static void InitializeDatabase(CityMapDbContext dbContext)
             EnsureSubmissionContactColumns(dbContext);
             return;
         }
-        catch (SqliteException exception) when (exception.SqliteErrorCode == 5 && attempt < maximumAttempts)
+        catch (SqliteException exception) when (exception.SqliteErrorCode == 5 && attempt < maximumDbAttempts)
         {
             Thread.Sleep(TimeSpan.FromSeconds(attempt * 2));
         }
