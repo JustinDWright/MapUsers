@@ -4,7 +4,6 @@ EXPOSE 5156
 
 ENV ASPNETCORE_URLS=http://+:5156
 
-RUN mkdir /data && chown app:app /data
 USER app
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
