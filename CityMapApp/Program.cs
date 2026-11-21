@@ -79,7 +79,10 @@ using (var scope = app.Services.CreateScope())
 }
 
 // Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment()) { }
+if (app.Environment.IsDevelopment()) 
+{ 
+    app.Logger.LogInformation("Running in development mode");
+}
 else
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
